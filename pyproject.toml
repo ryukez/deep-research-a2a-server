@@ -19,6 +19,8 @@ dependencies = [
     "fastapi",
     "google-genai",
     "a2a-sdk>=0.2.5",
+    "click>=8.0.0",
+    "httpx>=0.24.0",
 ]
 
 

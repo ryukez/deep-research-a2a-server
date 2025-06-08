@@ -1,77 +1,93 @@
+import logging
+import os
+import sys
+
+import click
+import httpx
 import uvicorn
 
 from a2a.server.apps import A2AStarletteApplication
 from a2a.server.request_handlers import DefaultRequestHandler
-from a2a.server.tasks import InMemoryTaskStore
+from a2a.server.tasks import InMemoryPushNotifier, InMemoryTaskStore
 from a2a.types import (
     AgentCapabilities,
     AgentCard,
     AgentSkill,
 )
+from dotenv import load_dotenv
 from agent_executor import (
-    HelloWorldAgentExecutor,  # type: ignore[import-untyped]
+    ResearchAgentExecutor,  # type: ignore[import-untyped]
 )
+
+load_dotenv()
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+
+class MissingAPIKeyError(Exception):
+    """Exception for missing API key."""
+
+
+@click.command()
+@click.option("--host", "host", default="localhost")
+@click.option("--port", "port", default=9999)
+def main(host, port):
+    """Starts the Deep Research Agent server."""
+    try:
+        if not os.getenv("GEMINI_API_KEY"):
+            raise MissingAPIKeyError("GEMINI_API_KEY environment variable not set.")
+
+        capabilities = AgentCapabilities(streaming=True, pushNotifications=True)
+
+        research_skill = AgentSkill(
+            id="web_research",
+            name="Web Research Agent",
+            description="Performs comprehensive web research on any topic using LangGraph and Google Search API",
+            tags=["research", "web search", "analysis", "information gathering"],
+            examples=[
+                "Research the latest developments in climate change",
+                "Research the latest developments in Python",
+                "What are the latest developments in quantum computing?",
+                "Research the impact of social media on mental health",
+            ],
+        )
+
+        # This will be the public-facing agent card
+        public_agent_card = AgentCard(
+            name="Deep Research Agent",
+            description="Comprehensive web research agent powered by LangGraph and Google Search API",
+            url=f"http://{host}:{port}/",
+            version="1.0.0",
+            defaultInputModes=["text"],
+            defaultOutputModes=["text"],
+            capabilities=capabilities,
+            skills=[research_skill],  # Research skill for the public card
+            supportsAuthenticatedExtendedCard=False,
+        )
+
+        httpx_client = httpx.AsyncClient()
+        request_handler = DefaultRequestHandler(
+            agent_executor=ResearchAgentExecutor(),  # 新しいResearchAgentExecutorを使用
+            task_store=InMemoryTaskStore(),
+            push_notifier=InMemoryPushNotifier(httpx_client),
+        )
+
+        server = A2AStarletteApplication(
+            agent_card=public_agent_card,
+            http_handler=request_handler,
+        )
+
+        logger.info(f"Starting Deep Research Agent server on {host}:{port}")
+        uvicorn.run(server.build(), host=host, port=port)
+
+    except MissingAPIKeyError as e:
+        logger.error(f"Error: {e}")
+        sys.exit(1)
+    except Exception as e:
+        logger.error(f"An error occurred during server startup: {e}")
+        sys.exit(1)
 
 
 if __name__ == "__main__":
-    # --8<-- [start:AgentSkill]
-    skill = AgentSkill(
-        id="hello_world",
-        name="Returns hello world",
-        description="just returns hello world",
-        tags=["hello world"],
-        examples=["hi", "hello world"],
-    )
-    # --8<-- [end:AgentSkill]
-
-    extended_skill = AgentSkill(
-        id="super_hello_world",
-        name="Returns a SUPER Hello World",
-        description="A more enthusiastic greeting, only for authenticated users.",
-        tags=["hello world", "super", "extended"],
-        examples=["super hi", "give me a super hello"],
-    )
-
-    # --8<-- [start:AgentCard]
-    # This will be the public-facing agent card
-    public_agent_card = AgentCard(
-        name="Hello World Agent",
-        description="Just a hello world agent",
-        url="http://localhost:9999/",
-        version="1.0.0",
-        defaultInputModes=["text"],
-        defaultOutputModes=["text"],
-        capabilities=AgentCapabilities(streaming=True),
-        skills=[skill],  # Only the basic skill for the public card
-        supportsAuthenticatedExtendedCard=True,
-    )
-    # --8<-- [end:AgentCard]
-
-    # This will be the authenticated extended agent card
-    # It includes the additional 'extended_skill'
-    specific_extended_agent_card = public_agent_card.model_copy(
-        update={
-            "name": "Hello World Agent - Extended Edition",  # Different name for clarity
-            "description": "The full-featured hello world agent for authenticated users.",
-            "version": "1.0.1",  # Could even be a different version
-            # Capabilities and other fields like url, defaultInputModes, defaultOutputModes,
-            # supportsAuthenticatedExtendedCard are inherited from public_agent_card unless specified here.
-            "skills": [
-                skill,
-                extended_skill,
-            ],  # Both skills for the extended card
-        }
-    )
-
-    request_handler = DefaultRequestHandler(
-        agent_executor=HelloWorldAgentExecutor(),
-        task_store=InMemoryTaskStore(),
-    )
-
-    server = A2AStarletteApplication(
-        agent_card=public_agent_card,
-        http_handler=request_handler,
-        extended_agent_card=specific_extended_agent_card,
-    )
-
-    uvicorn.run(server.build(), host="0.0.0.0", port=9999)
+    main()

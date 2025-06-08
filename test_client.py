@@ -26,7 +26,9 @@ async def main() -> None:
 
     base_url = "http://localhost:9999"
 
-    async with httpx.AsyncClient() as httpx_client:
+    async with httpx.AsyncClient(
+        timeout=httpx.Timeout(timeout=300.0),
+    ) as httpx_client:
         # Initialize A2ACardResolver
         resolver = A2ACardResolver(
             httpx_client=httpx_client,
@@ -103,7 +105,9 @@ async def main() -> None:
         send_message_payload: dict[str, Any] = {
             "message": {
                 "role": "user",
-                "parts": [{"kind": "text", "text": "how much is 10 USD in INR?"}],
+                "parts": [
+                    {"kind": "text", "text": "鶏肉を使った日本料理には何がありますか？"}
+                ],
                 "messageId": uuid4().hex,
             },
         }
